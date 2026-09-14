@@ -41,13 +41,17 @@ class ContextFlow:
         self.enable_l3 = enable_l3
         self.target_ratio = target_compression_ratio
 
-        # Initialize caches and compressor
+        # Initialize engine modules
         self.l1_cache = ExactCacheL1() if enable_l1 else None
         self.l2_cache = SemanticCacheL2(similarity_threshold=l2_threshold) if enable_l2 else None
         self.l3_compressor = ContextCompressorL3() if enable_l3 else None
 
     def chat(self, messages: list[dict], temperature: float = 0.2) -> dict:
         start_time = time.time()
+
+        # Update dynamic L2 threshold if modified
+        if self.l2_cache and hasattr(self, 'l2_threshold'):
+            self.l2_cache.similarity_threshold = self.l2_threshold
 
         # ----------------------------------------------------
         # 1. LAYER 1: EXACT CACHE CHECK (SHA-256)
@@ -79,6 +83,13 @@ class ContextFlow:
                 l2_hit["contextflow_meta"]["output_tokens"] = 0
                 l2_hit["contextflow_meta"]["total_tokens"] = 0
                 return l2_hit
+
+        # Retrieve debug score for telemetry display
+        l2_attempted_score = (
+            self.l2_cache.last_query_score 
+            if (self.enable_l2 and self.l2_cache.last_query_score is not None) 
+            else "N/A"
+        )
 
         # ----------------------------------------------------
         # 3. LAYER 3: CONTEXT COMPRESSION (If Cache Miss)
@@ -118,7 +129,6 @@ class ContextFlow:
                 last_error = e
                 is_rate_limit = "429" in str(e) or "rate_limit" in str(e).lower()
                 if is_rate_limit and attempt < MAX_RETRIES:
-                    print(f"  └─ Rate limited in ContextFlow (attempt {attempt}/{MAX_RETRIES}), waiting {RETRY_BACKOFF_SECONDS}s...")
                     time.sleep(RETRY_BACKOFF_SECONDS)
                     continue
                 raise last_error
@@ -142,12 +152,13 @@ class ContextFlow:
                 "output_tokens": completion_tokens,
                 "total_tokens": prompt_tokens + completion_tokens,
                 "latency_ms": latency_ms,
+                "l2_attempted_score": l2_attempted_score,
                 "compression_stats": compression_meta
             }
         }
 
         # ----------------------------------------------------
-        # 5. STORE RESPONSE IN L1 & L2 CACHES FOR FUTURE CALLS
+        # 5. STORE RESPONSE IN L1 & L2 CACHES
         # ----------------------------------------------------
         if self.enable_l1:
             self.l1_cache.set(self.model, messages, temperature, output_data)

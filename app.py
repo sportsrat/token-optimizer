@@ -39,7 +39,7 @@ enable_l1 = st.sidebar.checkbox("Enable L1 Exact Cache (SHA-256)", value=True)
 enable_l2 = st.sidebar.checkbox("Enable L2 Semantic Cache (Vector)", value=True)
 enable_l3 = st.sidebar.checkbox("Enable L3 Compressor", value=True)
 
-# Initialize Engine Instance in Session State so Caches Persist Across Reruns
+# Preserve Engine Instance in Session State
 if "cf_engine" not in st.session_state:
     st.session_state.cf_engine = ContextFlow(
         target_compression_ratio=target_ratio,
@@ -49,13 +49,15 @@ if "cf_engine" not in st.session_state:
         enable_l3=enable_l3
     )
 else:
-    # Update dynamic settings on slider change
+    # Synchronize controls dynamically
     st.session_state.cf_engine.target_ratio = target_ratio
     st.session_state.cf_engine.enable_l1 = enable_l1
     st.session_state.cf_engine.enable_l2 = enable_l2
     st.session_state.cf_engine.enable_l3 = enable_l3
+    if st.session_state.cf_engine.l2_cache:
+        st.session_state.cf_engine.l2_cache.similarity_threshold = l2_threshold
 
-# Main Layout
+# Main App Layout
 col_input, col_output = st.columns([1, 1])
 
 with col_input:
@@ -86,7 +88,7 @@ with col_output:
             res = st.session_state.cf_engine.chat(messages=messages)
             meta = res["contextflow_meta"]
 
-        # 1. Cache & Optimization Badge Display
+        # Engine Decision Layer Status Badge
         st.write("**Engine Decision Layer:**")
         cache_layer = meta["cache_layer"]
         if "L1_EXACT" in cache_layer:
@@ -94,19 +96,20 @@ with col_output:
         elif "L2_SEMANTIC" in cache_layer:
             st.info(f"🧠 L2 SEMANTIC CACHE HIT (Similarity Score: {meta.get('similarity_score', 'N/A')})")
         else:
-            st.warning("⚡ L3 COMPRESSOR ACTIVE (API Inference Run)")
+            l2_score = meta.get("l2_attempted_score", "N/A")
+            st.warning(f"⚡ L3 COMPRESSOR ACTIVE (API Inference Run | Best L2 Score: {l2_score})")
 
-        # 2. Key Metrics Row
+        # Metrics Summary Row
         m1, m2, m3 = st.columns(3)
         m1.metric("Input Tokens", meta["input_tokens"])
         m2.metric("Output Tokens", meta["output_tokens"])
         m3.metric("Latency", f"{meta['latency_ms']} ms")
 
-        # 3. Output Response
+        # LLM Output
         st.write("**Model Response:**")
         st.info(res["text"])
 
-        # 4. Detailed Compression Stats (If L3 was triggered)
+        # Detailed L3 Compression Breakdown (If L3 was triggered)
         if meta.get("compression_stats", {}).get("compressed"):
             c_stats = meta["compression_stats"]
             st.divider()

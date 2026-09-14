@@ -4,6 +4,7 @@ Layer 1 (Exact SHA-256) and Layer 2 (Semantic Embedding) Cache Systems.
 """
 
 import time
+import hashlib
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from contextflow.utils import generate_l1_hash, cosine_similarity
@@ -37,12 +38,17 @@ class ExactCacheL1:
 class SemanticCacheL2:
     """In-memory vector cache matching queries by embedding cosine similarity."""
 
-    def __init__(self, similarity_threshold: float = 0.92, ttl: int = 86400):
+    def __init__(self, similarity_threshold: float = 0.85, ttl: int = 86400):
         self.similarity_threshold = similarity_threshold
         self.ttl = ttl
-        # Lightweight local embedding model (~80MB)
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
-        self._cache = []  # List of dicts storing embeddings, context, query, response
+        self.embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
+        self._cache = []
+        self.last_query_score = None  # Telemetry property for UI inspection
+
+    def _hash_text(self, text: str) -> str:
+        """Normalize whitespace and compute deterministic SHA-256 string hash."""
+        normalized_text = " ".join(text.split())
+        return hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
 
     def _extract_query_and_context(self, messages: list[dict]):
         user_query = ""
@@ -55,6 +61,7 @@ class SemanticCacheL2:
         return context_str.strip(), user_query.strip()
 
     def get(self, messages: list[dict]):
+        self.last_query_score = None  # Reset debug score on each query
         context_str, user_query = self._extract_query_and_context(messages)
         if not user_query:
             return None
@@ -64,14 +71,13 @@ class SemanticCacheL2:
 
         best_match = None
         highest_score = -1.0
+        current_ctx_hash = self._hash_text(context_str)
 
         for entry in self._cache:
-            # Check expiration
             if now - entry["timestamp"] > self.ttl:
                 continue
 
-            # Contexts must match to avoid cross-document halluncination
-            if entry["context_hash"] != hash(context_str):
+            if entry["context_hash"] != current_ctx_hash:
                 continue
 
             sim_score = cosine_similarity(query_vector, entry["vector"])
@@ -79,12 +85,16 @@ class SemanticCacheL2:
                 highest_score = sim_score
                 best_match = entry
 
+        # Store debug score for telemetry
+        self.last_query_score = round(highest_score, 4) if highest_score > -1 else None
+
+        # Clean cache contract: Return dict on HIT, None on MISS
         if highest_score >= self.similarity_threshold and best_match:
             cached_res = dict(best_match["response"])
             cached_res["contextflow_meta"] = {
                 "cache_hit": True,
                 "cache_layer": "L2_SEMANTIC",
-                "similarity_score": round(highest_score, 4)
+                "similarity_score": self.last_query_score
             }
             return cached_res
 
@@ -98,7 +108,7 @@ class SemanticCacheL2:
         query_vector = self.embedder.encode(user_query, convert_to_numpy=True)
         self._cache.append({
             "timestamp": time.time(),
-            "context_hash": hash(context_str),
+            "context_hash": self._hash_text(context_str),
             "query": user_query,
             "vector": query_vector,
             "response": response
