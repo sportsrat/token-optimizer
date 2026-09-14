@@ -1,3 +1,6 @@
+## 📜 Try it out : 
+https://sportsrat-token-optimizer-app-3slbzw.streamlit.app/
+
 
 # ContextFlow
 
@@ -199,8 +202,5 @@ contextflow/
 
 ---
 
-## 📜 License
 
-Distributed under the MIT License. See `LICENSE` for details.
 
-``
