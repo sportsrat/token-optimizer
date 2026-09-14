@@ -5,7 +5,7 @@ Interactive Streamlit Dashboard for ContextFlow Engine.
 
 import streamlit as st
 import time
-from contextflow import ContextFlow, load_document
+from contextflow import ContextFlow
 
 # Page Configuration
 st.set_page_config(
@@ -61,19 +61,16 @@ col_input, col_output = st.columns([1, 1])
 with col_input:
     st.subheader("1. Context & Query Input")
     
-    uploaded_file = st.file_uploader("Upload background document (PDF or TXT)", type=["pdf", "txt"])
+    default_text = (
+        "ContextFlow is an open-source caching framework designed to reduce token usage, "
+        "latency, and cost in LLM applications through multi-layer caching and intelligent compression. "
+        "Layer 1 utilizes exact SHA-256 hashing for immediate request matching. Layer 2 relies on "
+        "semantic similarity matching using SentenceTransformers. Layer 3 employs chunking, relevance "
+        "scoring, and budget-aware context compression to trim long documents prior to inference. "
+    )
     
-    default_text = "ContextFlow is an open-source caching framework designed to reduce token usage..."
-    if uploaded_file is not None:
-        # Save temp file for load_document
-        temp_path = f"temp_{uploaded_file.name}"
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        context_str = load_document(temp_path)
-    else:
-        context_str = st.text_area("Or paste long context text here:", value=default_text * 15, height=200)
-
-    user_query = st.text_input("Enter User Question:", value="What is ContextFlow?")
+    context_str = st.text_area("Paste background document / long context text here:", value=default_text * 8, height=220)
+    user_query = st.text_input("Enter User Question:", value="How does Layer 1 caching work in ContextFlow?")
     run_button = st.button("Run ContextFlow Engine", type="primary")
 
 with col_output:
